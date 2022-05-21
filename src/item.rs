@@ -1,7 +1,7 @@
 use std::{fmt::Display, io};
 
 #[derive(Debug)]
-/// [`ProcessStream`] Output
+/// [`crate::Process`] stream output
 pub enum ProcessItem {
     /// A stdout chunk printed by the process.
     Output(String),
@@ -36,7 +36,7 @@ impl ProcessItem {
         matches!(self, Self::Exit(..))
     }
 
-    /// Return exit code if [`ProcessItem`] is [`Exit`]
+    /// Return exit code if [`ProcessItem`] is [`ProcessItem::Exit`]
     pub fn as_exit(&self) -> Option<&i32> {
         if let Self::Exit(v) = self {
             Some(v)
@@ -45,7 +45,7 @@ impl ProcessItem {
         }
     }
 
-    /// Return inner reference [`String`] value if [`ProcessItem`] is [`Error`]
+    /// Return inner reference [`String`] value if [`ProcessItem`] is [`ProcessItem::Error`]
     pub fn as_error(&self) -> Option<&String> {
         if let Self::Error(v) = self {
             Some(v)
@@ -54,7 +54,7 @@ impl ProcessItem {
         }
     }
 
-    /// Return inner reference [`String`] value if [`ProcessItem`] is [`Output`]
+    /// Return inner reference [`String`] value if [`ProcessItem`] is [`ProcessItem::Output`]
     pub fn as_output(&self) -> Option<&String> {
         if let Self::Output(v) = self {
             Some(v)

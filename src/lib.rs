@@ -5,7 +5,7 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 
 use futures::{
-    stream::{once, Map, Once},
+    stream::{once, Once},
     Future, Stream,
 };
 use io::Result;
@@ -30,6 +30,51 @@ pub use futures::TryStreamExt;
 pub use item::ProcessItem;
 
 /// Thin Wrapper around [`Command`] to make it streamable
+///
+/// ## Example usage:
+///
+/// ### From `Vec<String>` or `Vec<&str>`
+///
+/// ```rust
+/// use process_stream::Process;
+/// use process_stream::StreamExt;
+/// use std::io;
+///
+/// #[tokio::main]
+/// async fn main() -> io::Result<()> {
+///     let ls_home: Process = vec!["/bin/ls", "."].into();
+///
+///     let mut stream = ls_home.stream()?;
+///
+///     while let Some(output) = stream.next().await {
+///         println!("{output}")
+///     }
+///
+///     Ok(())
+/// }
+/// ```
+///
+/// ### New
+///
+/// ```rust
+/// use process_stream::Process;
+/// use process_stream::StreamExt;
+/// use std::io;
+///
+/// #[tokio::main]
+/// async fn main() -> io::Result<()> {
+///     let mut ls_home = Process::new("/bin/ls");
+///     ls_home.arg("~/");
+///
+///     let mut stream = ls_home.stream()?;
+///
+///     while let Some(output) = stream.next().await {
+///         println!("{output}")
+///     }
+///
+///     Ok(())
+/// }
+/// ```
 pub struct Process {
     inner: Command,
     stdin: Option<Stdio>,
@@ -49,12 +94,13 @@ impl Process {
     }
 
     /// Spawn and stream [`Command`] outputs
-    pub fn stream(&mut self) -> Result<impl Stream<Item = ProcessItem> + Send> {
-        self.inner.stdin(self.stdin.take().unwrap());
-        self.inner.stdout(self.stdout.take().unwrap());
-        self.inner.stderr(self.stderr.take().unwrap());
+    pub fn stream(mut self) -> Result<impl Stream<Item = ProcessItem> + Send> {
+        let mut cmd = self.inner;
+        self.stdin.take().map(|out| cmd.stdin(out));
+        self.stdout.take().map(|out| cmd.stdout(out));
+        self.stderr.take().map(|out| cmd.stderr(out));
 
-        let mut child = self.spawn()?;
+        let mut child = cmd.spawn()?;
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
         let stdout_stream = into_stream(stdout, true);
@@ -97,12 +143,39 @@ impl DerefMut for Process {
     }
 }
 
-type Streamable<R, F> = Map<LinesStream<BufReader<R>>, F>;
+impl From<Command> for Process {
+    fn from(mut command: Command) -> Self {
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
+        command.stdin(Stdio::null());
+        Self {
+            inner: command,
+            stdin: Some(Stdio::piped()),
+            stdout: Some(Stdio::piped()),
+            stderr: Some(Stdio::null()),
+        }
+    }
+}
 
-fn into_stream<R: AsyncRead>(
-    out: R,
-    is_stdout: bool,
-) -> Streamable<R, impl FnMut(io::Result<String>) -> ProcessItem> {
+impl<S: AsRef<OsStr>> From<Vec<S>> for Process {
+    fn from(mut command_args: Vec<S>) -> Self {
+        let command = command_args.remove(0);
+        let mut inner = Command::new(command);
+        inner.args(command_args);
+        inner.stdout(Stdio::piped());
+        inner.stderr(Stdio::piped());
+        inner.stdin(Stdio::null());
+
+        Self {
+            inner,
+            stdin: None,
+            stdout: None,
+            stderr: None,
+        }
+    }
+}
+
+fn into_stream<R: AsyncRead>(out: R, is_stdout: bool) -> impl Stream<Item = ProcessItem> {
     out.pipe(BufReader::new)
         .lines()
         .pipe(LinesStream::new)
@@ -129,10 +202,32 @@ fn exit_stream(mut child: Child) -> Once<impl Future<Output = ProcessItem>> {
 #[cfg(test)]
 mod tests {
     use crate::*;
+    use std::io::Result;
 
     #[tokio::test]
-    async fn it_works() {
+    async fn test_from_vector() -> Result<()> {
+        let mut stream = Process::from(vec![
+            "xcrun",
+            "simctl",
+            "launch",
+            "--terminate-running-process",
+            "--console",
+            "booted",
+            "tami5.Wordle",
+        ])
+        .stream()
+        .unwrap();
+
+        while let Some(output) = stream.next().await {
+            println!("{output}")
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_new() -> Result<()> {
         let mut process = Process::new("xcrun");
+
         process.args(&[
             "simctl",
             "launch",
@@ -142,9 +237,11 @@ mod tests {
             "tami5.Wordle",
         ]);
 
-        let mut stream = process.stream().unwrap();
+        let mut stream = process.stream()?;
+
         while let Some(output) = stream.next().await {
             println!("{output}")
         }
+        Ok(())
     }
 }
