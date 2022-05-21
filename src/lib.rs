@@ -5,7 +5,6 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 
 use async_stream::stream;
-use futures::Stream;
 use io::Result;
 use std::{
     ffi::OsStr,
@@ -24,6 +23,7 @@ use {
 };
 
 mod item;
+pub use futures::Stream;
 pub use futures::StreamExt;
 pub use futures::TryStreamExt;
 pub use item::ProcessItem;
