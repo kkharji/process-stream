@@ -158,12 +158,12 @@ impl Process {
     }
 
     /// Set the process's stdout.
-    pub fn set_stdout(&mut self, stdout: Stdio) {
+    pub fn stdout(&mut self, stdout: Stdio) {
         self.stdout = stdout.into();
     }
 
     /// Set the process's stderr.
-    pub fn set_stderr(&mut self, stderr: Stdio) {
+    pub fn stderr(&mut self, stderr: Stdio) {
         self.stderr = stderr.into();
     }
 }
