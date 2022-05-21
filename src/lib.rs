@@ -112,14 +112,15 @@ impl Process {
 
         let stream = stream! {
             loop {
+                use ProcessItem::*;
                 tokio::select! {
                     Some(out) = out.next() => yield out,
                     status = child.wait() => match status {
-                        Err(err) => yield ProcessItem::Error(err.to_string()),
+                        Err(err) => yield Error(err.to_string()),
                         Ok(status) => {
                             match status.code() {
-                                Some(code) => yield ProcessItem::Exit(code),
-                                None => yield ProcessItem::Error("Unable to get exit code".into()),
+                                Some(code) => yield Exit(format!("{code}")),
+                                None => yield Error("Unable to get exit code".into()),
                             }
                             break;
 
@@ -127,8 +128,8 @@ impl Process {
                     },
                     Some(_) = kill_recv.recv() => {
                         match child.start_kill() {
-                            Ok(()) => yield ProcessItem::Exit(0),
-                            Err(err) => yield ProcessItem::Error(format!("Kill Process Error: {err}")),
+                            Ok(()) => yield Exit("0".into()),
+                            Err(err) => yield Error(format!("Kill Process Error: {err}")),
                         };
                         break;
                     }
@@ -254,7 +255,7 @@ mod tests {
         let mut stream = process.stream()?;
 
         while let Some(output) = stream.next().await {
-            println!("{output}")
+            println!("{output:#?}")
         }
         Ok(())
     }
@@ -281,5 +282,18 @@ mod tests {
         tokio::time::sleep(std::time::Duration::new(5, 0)).await;
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_dref_item_as_str() {
+        use ProcessItem::*;
+        let items = vec![
+            Output("Hello".into()),
+            Error("XXXXXXXXXX".into()),
+            Exit("0".into()),
+        ];
+        for item in items {
+            println!("{:?}", item.as_bytes())
+        }
     }
 }

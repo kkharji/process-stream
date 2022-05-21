@@ -1,6 +1,5 @@
-use std::{fmt::Display, io};
+use std::{fmt, io, ops::Deref};
 
-#[derive(Debug)]
 /// [`crate::Process`] stream output
 pub enum ProcessItem {
     /// A stdout chunk printed by the process.
@@ -8,7 +7,44 @@ pub enum ProcessItem {
     /// A stderr chunk printed by the process or internal error message
     Error(String),
     /// Indication that the process exit successful
-    Exit(i32),
+    Exit(String),
+}
+
+impl Deref for ProcessItem {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            ProcessItem::Output(s) => s,
+            ProcessItem::Error(s) => s,
+            ProcessItem::Exit(s) => s,
+        }
+    }
+}
+
+impl fmt::Display for ProcessItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
+impl fmt::Debug for ProcessItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Output(out) => write!(f, "[Output] {out}"),
+            Self::Error(err) => write!(f, "[Error] {err}"),
+            Self::Exit(code) => write!(f, "[Exit] {code}"),
+        }
+    }
+}
+impl From<(bool, io::Result<String>)> for ProcessItem {
+    fn from(v: (bool, io::Result<String>)) -> Self {
+        match v.1 {
+            Ok(line) if v.0 => Self::Output(line),
+            Ok(line) => Self::Error(line),
+            Err(e) => Self::Error(e.to_string()),
+        }
+    }
 }
 
 impl ProcessItem {
@@ -37,7 +73,7 @@ impl ProcessItem {
     }
 
     /// Return exit code if [`ProcessItem`] is [`ProcessItem::Exit`]
-    pub fn as_exit(&self) -> Option<&i32> {
+    pub fn as_exit(&self) -> Option<&String> {
         if let Self::Exit(v) = self {
             Some(v)
         } else {
@@ -60,26 +96,6 @@ impl ProcessItem {
             Some(v)
         } else {
             None
-        }
-    }
-}
-
-impl From<(bool, io::Result<String>)> for ProcessItem {
-    fn from(v: (bool, io::Result<String>)) -> Self {
-        match v.1 {
-            Ok(line) if v.0 => Self::Output(line),
-            Ok(line) => Self::Error(line),
-            Err(e) => Self::Error(e.to_string()),
-        }
-    }
-}
-
-impl Display for ProcessItem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ProcessItem::Output(line) => line.fmt(f),
-            ProcessItem::Error(line) => line.fmt(f),
-            ProcessItem::Exit(code) => write!(f, "[Exit] {code}"),
         }
     }
 }
