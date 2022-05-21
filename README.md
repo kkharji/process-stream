@@ -46,3 +46,32 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 ```
+
+### Kill 
+
+```rust
+use process_stream::Process;
+use process_stream::StreamExt;
+use std::io;
+
+#[tokio::main]
+async fn main() -> io::Result<()> {
+    let mut long_process = Process::new("/bin/app");
+
+    let mut stream = long_process.stream()?;
+
+    tokio::spawn(async move {
+      while let Some(output) = stream.next().await {
+        println!("{output}")
+      }
+    })
+
+    // process some outputs
+    tokio::time::sleep(std::time::Duration::new(10, 0)).await;
+
+    // close the process
+    long_process.kill().await;
+
+    Ok(())
+}
+```

@@ -4,10 +4,8 @@
 #![deny(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
 
-use futures::{
-    stream::{once, Once},
-    Future, Stream,
-};
+use async_stream::stream;
+use futures::Stream;
 use io::Result;
 use std::{
     ffi::OsStr,
@@ -19,7 +17,8 @@ use tap::Pipe;
 use {
     tokio::{
         io::{AsyncBufReadExt, AsyncRead, BufReader},
-        process::{Child, Command},
+        process::Command,
+        sync::mpsc::{channel, Sender},
     },
     tokio_stream::wrappers::LinesStream,
 };
@@ -42,11 +41,10 @@ pub use item::ProcessItem;
 ///
 /// #[tokio::main]
 /// async fn main() -> io::Result<()> {
-///     let ls_home: Process = vec!["/bin/ls", "."].into();
+///     let mut ls_home: Process = vec!["/bin/ls", "."].into();
+///     let mut ls_stream = ls_home.stream()?;
 ///
-///     let mut stream = ls_home.stream()?;
-///
-///     while let Some(output) = stream.next().await {
+///     while let Some(output) = ls_stream.next().await {
 ///         println!("{output}")
 ///     }
 ///
@@ -80,6 +78,7 @@ pub struct Process {
     stdin: Option<Stdio>,
     stdout: Option<Stdio>,
     stderr: Option<Stdio>,
+    kill_send: Option<Sender<()>>,
 }
 
 impl Process {
@@ -90,32 +89,71 @@ impl Process {
             stdin: Some(Stdio::null()),
             stdout: Some(Stdio::piped()),
             stderr: Some(Stdio::piped()),
+            kill_send: None,
         }
     }
 
     /// Spawn and stream [`Command`] outputs
-    pub fn stream(mut self) -> Result<impl Stream<Item = ProcessItem> + Send> {
-        let mut cmd = self.inner;
-        self.stdin.take().map(|out| cmd.stdin(out));
-        self.stdout.take().map(|out| cmd.stdout(out));
-        self.stderr.take().map(|out| cmd.stderr(out));
+    pub fn stream(&mut self) -> Result<impl Stream<Item = ProcessItem> + Send> {
+        self.stdin.take().map(|out| self.inner.stdin(out));
+        self.stdout.take().map(|out| self.inner.stdout(out));
+        self.stderr.take().map(|out| self.inner.stderr(out));
 
-        let mut child = cmd.spawn()?;
+        let mut child = self.inner.spawn()?;
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
+
+        let (kill_send, mut kill_recv) = channel::<()>(1);
+        self.kill_send = kill_send.into();
+
         let stdout_stream = into_stream(stdout, true);
         let stderr_stream = into_stream(stderr, false);
-        let exit_stream = exit_stream(child);
+        let mut out_stream = tokio_stream::StreamExt::merge(stdout_stream, stderr_stream);
 
-        tokio_stream::StreamExt::merge(stdout_stream, stderr_stream)
-            .chain(exit_stream)
-            .boxed()
-            .pipe(Ok)
+        let stream = stream! {
+            loop {
+                tokio::select! {
+                    Some(out) = out_stream.next() => yield out,
+                    status = child.wait() => match status {
+                        Err(err) => yield ProcessItem::Error(err.to_string()),
+                        Ok(status) => {
+                            match status.code() {
+                                Some(code) => yield ProcessItem::Exit(code),
+                                None => yield ProcessItem::Error("Unable to get exit code".into()),
+                            }
+                            break;
+
+                        }
+                    },
+                    Some(_) = kill_recv.recv() => {
+                        match child.start_kill() {
+                            Ok(()) => yield ProcessItem::Exit(0),
+                            Err(err) => yield ProcessItem::Error(format!("Kill Process Error: {err}")),
+                        };
+                        break;
+                    }
+                }
+            }
+        };
+
+        Ok(stream.boxed())
     }
 
     /// Set the process's stdin.
     pub fn stdin(&mut self, stdin: Stdio) {
         self.stdin = stdin.into();
+    }
+
+    /// Kill Running process.
+    /// returns false if the call is already made.
+    pub async fn kill(&mut self) -> bool {
+        match self.kill_send.take() {
+            Some(tx) => {
+                tx.send(()).await.ok();
+                true
+            }
+            None => false,
+        }
     }
 
     /// Set the process's stdout.
@@ -153,6 +191,7 @@ impl From<Command> for Process {
             stdin: Some(Stdio::piped()),
             stdout: Some(Stdio::piped()),
             stderr: Some(Stdio::null()),
+            kill_send: None,
         }
     }
 }
@@ -162,16 +201,8 @@ impl<S: AsRef<OsStr>> From<Vec<S>> for Process {
         let command = command_args.remove(0);
         let mut inner = Command::new(command);
         inner.args(command_args);
-        inner.stdout(Stdio::piped());
-        inner.stderr(Stdio::piped());
-        inner.stdin(Stdio::null());
 
-        Self {
-            inner,
-            stdin: None,
-            stdout: None,
-            stderr: None,
-        }
+        Self::from(inner)
     }
 }
 
@@ -180,23 +211,6 @@ fn into_stream<R: AsyncRead>(out: R, is_stdout: bool) -> impl Stream<Item = Proc
         .lines()
         .pipe(LinesStream::new)
         .map(move |v| ProcessItem::from((is_stdout, v)))
-}
-
-fn exit_stream(mut child: Child) -> Once<impl Future<Output = ProcessItem>> {
-    let exit_status = tokio::spawn(async move { child.wait().await });
-    once(async {
-        match exit_status.await {
-            Err(err) => ProcessItem::Error(err.to_string()),
-            Ok(Ok(status)) => {
-                if let Some(code) = status.code() {
-                    ProcessItem::Exit(code)
-                } else {
-                    ProcessItem::Error("Unable to get exit code".into())
-                }
-            }
-            Ok(Err(err)) => ProcessItem::Error(err.to_string()),
-        }
-    })
 }
 
 #[cfg(test)]
@@ -242,6 +256,30 @@ mod tests {
         while let Some(output) = stream.next().await {
             println!("{output}")
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_kill() -> Result<()> {
+        let mut process = Process::new("xcrun");
+
+        process.args(&[
+            "/Users/tami5/Library/Caches/Xbase/swift/Control/Control.app/Contents/MacOS/Control",
+        ]);
+
+        let mut stream = process.stream()?;
+        tokio::spawn(async move {
+            while let Some(output) = stream.next().await {
+                println!("{output}")
+            }
+        });
+
+        tokio::time::sleep(std::time::Duration::new(5, 0)).await;
+
+        process.kill().await;
+
+        tokio::time::sleep(std::time::Duration::new(5, 0)).await;
+
         Ok(())
     }
 }
