@@ -2,8 +2,14 @@
 name = "process-stream"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Thin wrapper around [`tokio::process`] to make it streamable"
+authors = ["tami5 "]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/tami5/process-stream"
+repository = "https://github.com/tami5/process-stream"
+categories = ["asynchronous"]
+keywords = ["tokio", "stream", "async-stream", "process"]
 
 [dependencies]
 tap          = "1.0.1"

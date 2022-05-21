@@ -2,6 +2,12 @@
 
 Wraps `tokio::process::Command` to `future::stream`.
 
+## Install
+
+```toml 
+process-stream = "0.1.0"
+```
+
 ## Example usage:
 
 ### From `Vec<String>` or `Vec<&str>`

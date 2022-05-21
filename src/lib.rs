@@ -1,4 +1,4 @@
-//! process-stream is a thin wrapper around [`tokio::process`] to make process output streamable
+//! process-stream is a thin wrapper around [`tokio::process`] to make it streamable
 #![deny(future_incompatible)]
 #![deny(nonstandard_style)]
 #![deny(missing_docs)]
@@ -108,12 +108,12 @@ impl Process {
 
         let stdout_stream = into_stream(stdout, true);
         let stderr_stream = into_stream(stderr, false);
-        let mut out_stream = tokio_stream::StreamExt::merge(stdout_stream, stderr_stream);
+        let mut out = tokio_stream::StreamExt::merge(stdout_stream, stderr_stream);
 
         let stream = stream! {
             loop {
                 tokio::select! {
-                    Some(out) = out_stream.next() => yield out,
+                    Some(out) = out.next() => yield out,
                     status = child.wait() => match status {
                         Err(err) => yield ProcessItem::Error(err.to_string()),
                         Ok(status) => {
@@ -188,9 +188,9 @@ impl From<Command> for Process {
         command.stdin(Stdio::null());
         Self {
             inner: command,
-            stdin: Some(Stdio::piped()),
-            stdout: Some(Stdio::piped()),
-            stderr: Some(Stdio::null()),
+            stdin: None,
+            stdout: None,
+            stderr: None,
             kill_send: None,
         }
     }
