@@ -10,6 +10,7 @@ use std::{
     ffi::OsStr,
     io,
     ops::{Deref, DerefMut},
+    path::{Path, PathBuf},
     process::Stdio,
 };
 use tap::Pipe;
@@ -213,6 +214,27 @@ impl<S: AsRef<OsStr>> From<Vec<S>> for Process {
     }
 }
 
+impl From<&Path> for Process {
+    fn from(path: &Path) -> Self {
+        let command = Command::new(path);
+        Self::from(command)
+    }
+}
+
+impl From<&str> for Process {
+    fn from(path: &str) -> Self {
+        let command = Command::new(path);
+        Self::from(command)
+    }
+}
+
+impl From<&PathBuf> for Process {
+    fn from(path: &PathBuf) -> Self {
+        let command = Command::new(path);
+        Self::from(command)
+    }
+}
+
 fn into_stream<R: AsyncRead>(out: R, is_stdout: bool) -> impl Stream<Item = ProcessItem> {
     out.pipe(BufReader::new)
         .lines()
@@ -242,6 +264,15 @@ mod tests {
         while let Some(output) = stream.next().await {
             println!("{output}")
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_from_path() -> Result<()> {
+        let mut process: Process = "/bin/ls".into();
+
+        let outputs = process.spawn_and_stream()?.collect::<Vec<_>>().await;
+        println!("{outputs:#?}");
         Ok(())
     }
 
