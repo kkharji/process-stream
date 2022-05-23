@@ -93,8 +93,14 @@ impl Process {
         }
     }
 
+    #[deprecated(since = "0.2", note = "use Process::spawn_and_stream instread")]
     /// Spawn and stream [`Command`] outputs
     pub fn stream(&mut self) -> Result<impl Stream<Item = ProcessItem> + Send> {
+        self.spawn_and_stream()
+    }
+
+    /// Spawn and stream [`Command`] outputs
+    pub fn spawn_and_stream(&mut self) -> Result<impl Stream<Item = ProcessItem> + Send> {
         self.stdin.take().map(|out| self.inner.stdin(out));
         self.stdout.take().map(|out| self.inner.stdout(out));
         self.stderr.take().map(|out| self.inner.stderr(out));
@@ -230,7 +236,7 @@ mod tests {
             "booted",
             "tami5.Wordle",
         ])
-        .stream()
+        .spawn_and_stream()
         .unwrap();
 
         while let Some(output) = stream.next().await {
@@ -252,7 +258,7 @@ mod tests {
             "tami5.Wordle",
         ]);
 
-        let mut stream = process.stream()?;
+        let mut stream = process.spawn_and_stream()?;
 
         while let Some(output) = stream.next().await {
             println!("{output:#?}")
@@ -268,7 +274,7 @@ mod tests {
             "/Users/tami5/Library/Caches/Xbase/swift/Control/Control.app/Contents/MacOS/Control",
         ]);
 
-        let mut stream = process.stream()?;
+        let mut stream = process.spawn_and_stream()?;
         tokio::spawn(async move {
             while let Some(output) = stream.next().await {
                 println!("{output}")
