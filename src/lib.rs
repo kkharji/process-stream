@@ -154,14 +154,21 @@ impl Process {
 
     /// Kill Running process.
     /// returns false if the call is already made.
-    pub async fn kill(&mut self) -> bool {
-        match self.kill_send.take() {
-            Some(tx) => {
-                tx.send(()).await.ok();
-                true
-            }
-            None => false,
+    pub async fn kill(&self) -> bool {
+        if let Some(tx) = &self.kill_send {
+            tx.send(()).await.is_ok()
+        } else {
+            false
         }
+    }
+
+    /// Get an owned instance of kill single sender.
+    ///
+    /// This Convinent to be able to kill process from different threads.
+    ///
+    /// Returns None if process is already killed
+    pub fn clone_kill_sender(&self) -> Option<Sender<()>> {
+        self.kill_send.clone()
     }
 
     /// Set the process's stdout.
