@@ -5,7 +5,7 @@ Wraps `tokio::process::Command` to `future::stream`.
 ## Install
 
 ```toml 
-process-stream = "0.2.1"
+process-stream = "0.2.2"
 ```
 
 ## Example usage:
