@@ -3,6 +3,7 @@
 #![deny(nonstandard_style)]
 #![deny(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
+#![doc = include_str!("../README.md")]
 
 use async_stream::stream;
 use io::Result;
@@ -17,7 +18,7 @@ use tap::Pipe;
 use {
     tokio::{
         io::{AsyncBufReadExt, AsyncRead, BufReader},
-        process::Command,
+        process::{ChildStdin, Command},
         sync::mpsc::{channel, Sender},
     },
     tokio_stream::wrappers::LinesStream,
@@ -30,55 +31,12 @@ pub use futures::TryStreamExt;
 pub use item::ProcessItem;
 
 /// Thin Wrapper around [`Command`] to make it streamable
-///
-/// ## Example usage:
-///
-/// ### From `Vec<String>` or `Vec<&str>`
-///
-/// ```rust
-/// use process_stream::Process;
-/// use process_stream::StreamExt;
-/// use std::io;
-///
-/// #[tokio::main]
-/// async fn main() -> io::Result<()> {
-///     let mut ls_home: Process = vec!["/bin/ls", "."].into();
-///     let mut ls_stream = ls_home.stream()?;
-///
-///     while let Some(output) = ls_stream.next().await {
-///         println!("{output}")
-///     }
-///
-///     Ok(())
-/// }
-/// ```
-///
-/// ### New
-///
-/// ```rust
-/// use process_stream::Process;
-/// use process_stream::StreamExt;
-/// use std::io;
-///
-/// #[tokio::main]
-/// async fn main() -> io::Result<()> {
-///     let mut ls_home = Process::new("/bin/ls");
-///     ls_home.arg("~/");
-///
-///     let mut stream = ls_home.stream()?;
-///
-///     while let Some(output) = stream.next().await {
-///         println!("{output}")
-///     }
-///
-///     Ok(())
-/// }
-/// ```
 pub struct Process {
     inner: Command,
-    stdin: Option<Stdio>,
-    stdout: Option<Stdio>,
-    stderr: Option<Stdio>,
+    stdin: Option<ChildStdin>,
+    set_stdin: Option<Stdio>,
+    set_stdout: Option<Stdio>,
+    set_stderr: Option<Stdio>,
     kill_send: Option<Sender<()>>,
 }
 
@@ -87,9 +45,10 @@ impl Process {
     pub fn new<S: AsRef<OsStr>>(program: S) -> Self {
         Self {
             inner: Command::new(program),
-            stdin: Some(Stdio::null()),
-            stdout: Some(Stdio::piped()),
-            stderr: Some(Stdio::piped()),
+            set_stdin: Some(Stdio::null()),
+            set_stdout: Some(Stdio::piped()),
+            set_stderr: Some(Stdio::piped()),
+            stdin: None,
             kill_send: None,
         }
     }
@@ -102,13 +61,14 @@ impl Process {
 
     /// Spawn and stream [`Command`] outputs
     pub fn spawn_and_stream(&mut self) -> Result<impl Stream<Item = ProcessItem> + Send> {
-        self.stdin.take().map(|out| self.inner.stdin(out));
-        self.stdout.take().map(|out| self.inner.stdout(out));
-        self.stderr.take().map(|out| self.inner.stderr(out));
+        self.set_stdin.take().map(|out| self.inner.stdin(out));
+        self.set_stdout.take().map(|out| self.inner.stdout(out));
+        self.set_stderr.take().map(|out| self.inner.stderr(out));
 
         let mut child = self.inner.spawn()?;
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
+        self.stdin = child.stdin.take();
 
         let (kill_send, mut kill_recv) = channel::<()>(1);
         self.kill_send = kill_send.into();
@@ -149,7 +109,7 @@ impl Process {
 
     /// Set the process's stdin.
     pub fn stdin(&mut self, stdin: Stdio) {
-        self.stdin = stdin.into();
+        self.set_stdin = stdin.into();
     }
 
     /// Kill Running process.
@@ -173,12 +133,18 @@ impl Process {
 
     /// Set the process's stdout.
     pub fn stdout(&mut self, stdout: Stdio) {
-        self.stdout = stdout.into();
+        self.set_stdout = stdout.into();
     }
 
     /// Set the process's stderr.
     pub fn stderr(&mut self, stderr: Stdio) {
-        self.stderr = stderr.into();
+        self.set_stderr = stderr.into();
+    }
+
+    /// Get a reference to the process's stdin.
+    #[must_use]
+    pub fn take_stdin(&mut self) -> Option<ChildStdin> {
+        self.stdin.take()
     }
 }
 
@@ -204,8 +170,9 @@ impl From<Command> for Process {
         Self {
             inner: command,
             stdin: None,
-            stdout: None,
-            stderr: None,
+            set_stdin: None,
+            set_stdout: None,
+            set_stderr: None,
             kill_send: None,
         }
     }
@@ -251,6 +218,8 @@ fn into_stream<R: AsyncRead>(out: R, is_stdout: bool) -> impl Stream<Item = Proc
 
 #[cfg(test)]
 mod tests {
+    use tokio::io::AsyncWriteExt;
+
     use crate::*;
     use std::io::Result;
 
@@ -339,5 +308,40 @@ mod tests {
         for item in items {
             println!("{:?}", item.as_bytes())
         }
+    }
+
+    #[tokio::test]
+    async fn communicate_with_running_process() -> Result<()> {
+        let mut process: Process = Process::new("sort");
+
+        // Set stdin (by default is set to null)
+        process.stdin(Stdio::piped());
+
+        // Get Stream;
+        let mut stream = process.spawn_and_stream().unwrap();
+
+        // Get writer from stdin;
+        let mut writer = process.take_stdin().unwrap();
+
+        // Start new running process
+        let reader_thread = tokio::spawn(async move {
+            while let Some(output) = stream.next().await {
+                if output.is_exit() {
+                    println!("DONE")
+                } else {
+                    println!("{output}")
+                }
+            }
+        });
+
+        let writer_thread = tokio::spawn(async move {
+            writer.write(b"b\nc\na\n").await.unwrap();
+            writer.write(b"f\ne\nd\n").await.unwrap();
+        });
+
+        writer_thread.await?;
+        reader_thread.await?;
+
+        Ok(())
     }
 }
