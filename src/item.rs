@@ -1,6 +1,8 @@
 use std::{fmt, io, ops::Deref};
 
 /// [`crate::Process`] stream output
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(tag = "kind"))]
 pub enum ProcessItem {
     /// A stdout chunk printed by the process.
     Output(String),
@@ -70,6 +72,14 @@ impl ProcessItem {
     #[must_use]
     pub fn is_exit(&self) -> bool {
         matches!(self, Self::Exit(..))
+    }
+
+    /// Returns Some(`true`) if the process item is [`Exit`] and returned 0
+    ///
+    /// [`Exit`]: ProcessItem::Exit
+    #[must_use]
+    pub fn is_success(&self) -> Option<bool> {
+        self.as_exit().map(|s| s.trim() == "0")
     }
 
     /// Return exit code if [`ProcessItem`] is [`ProcessItem::Exit`]

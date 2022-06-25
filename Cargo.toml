@@ -1,6 +1,6 @@
 [package]
 name = "process-stream"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 description = "Thin wrapper around [`tokio::process`] to make it streamable"
 authors = ["tami5 "]
@@ -17,3 +17,8 @@ futures      = "0.3.21"
 tokio        = { version = "1.18.0", features = [ "rt-multi-thread", "macros", "process"] }
 tokio-stream = { version = "0.1.8", features = ["io-util"] }
 async-stream = "0.3.3"
+serde = { version = "1.0.137", features = ["derive"], optional = true }
+
+[features]
+default = []
+serde = [ "dep:serde" ]
