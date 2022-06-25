@@ -1,6 +1,6 @@
 [package]
 name = "process-stream"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 description = "Thin wrapper around [`tokio::process`] to make it streamable"
 authors = ["tami5 "]
