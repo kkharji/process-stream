@@ -5,7 +5,7 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![doc = include_str!("../README.md")]
 
-use async_stream::stream;
+pub use async_stream::stream;
 use io::Result;
 use std::{
     ffi::OsStr,
