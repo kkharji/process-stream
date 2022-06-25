@@ -2,7 +2,6 @@ use std::{fmt, io, ops::Deref};
 
 /// [`crate::Process`] stream output
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[cfg_attr(feature = "serde", serde(tag = "kind"))]
 #[derive(Clone)]
 pub enum ProcessItem {
     /// A stdout chunk printed by the process.
