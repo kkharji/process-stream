@@ -12,6 +12,7 @@ use std::{
     io,
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
+    pin::Pin,
     process::Stdio,
 };
 use tap::Pipe;
@@ -25,63 +26,53 @@ use {
 };
 
 mod item;
+pub use async_trait::async_trait;
 pub use futures::Stream;
 pub use futures::StreamExt;
 pub use futures::TryStreamExt;
 pub use item::ProcessItem;
+pub use tokio_stream;
 
-/// Thin Wrapper around [`Command`] to make it streamable
-pub struct Process {
-    inner: Command,
-    stdin: Option<ChildStdin>,
-    set_stdin: Option<Stdio>,
-    set_stdout: Option<Stdio>,
-    set_stderr: Option<Stdio>,
-    kill_send: Option<Sender<()>>,
-}
+#[async_trait]
+/// ProcessExt trait that needs to be implemented to make something streamable
+pub trait ProcessExt {
+    /// Get command that will be used to create a child process from
+    fn get_command(&mut self) -> &mut Command;
 
-impl Process {
-    /// Create new process with a program
-    pub fn new<S: AsRef<OsStr>>(program: S) -> Self {
-        Self {
-            inner: Command::new(program),
-            set_stdin: Some(Stdio::null()),
-            set_stdout: Some(Stdio::piped()),
-            set_stderr: Some(Stdio::piped()),
-            stdin: None,
-            kill_send: None,
-        }
+    /// Get command after settings the required pipes;
+    fn command(&mut self) -> &mut Command {
+        let stdin = self.get_stdin().take().unwrap();
+        let stdout = self.get_stdout().take().unwrap();
+        let stderr = self.get_stderr().take().unwrap();
+        let command = self.get_command();
+
+        command.stdin(stdin);
+        command.stderr(stdout);
+        command.stdout(stderr);
+        command
     }
 
-    #[deprecated(since = "0.2", note = "use Process::spawn_and_stream instread")]
-    /// Spawn and stream [`Command`] outputs
-    pub fn stream(&mut self) -> Result<impl Stream<Item = ProcessItem> + Send> {
-        self.spawn_and_stream()
-    }
+    /// Spawn and stream process
+    fn spawn_and_stream(&mut self) -> Result<Pin<Box<dyn Stream<Item = ProcessItem> + Send>>> {
+        let (kill_send, mut kill_recv) = channel::<()>(1);
 
-    /// Spawn and stream [`Command`] outputs
-    pub fn spawn_and_stream(&mut self) -> Result<impl Stream<Item = ProcessItem> + Send> {
-        self.set_stdin.take().map(|out| self.inner.stdin(out));
-        self.set_stdout.take().map(|out| self.inner.stdout(out));
-        self.set_stderr.take().map(|out| self.inner.stderr(out));
+        let mut child = self.command().spawn()?;
 
-        let mut child = self.inner.spawn()?;
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
-        self.stdin = child.stdin.take();
 
-        let (kill_send, mut kill_recv) = channel::<()>(1);
-        self.kill_send = kill_send.into();
+        self.set_child_stdin(child.stdin.take());
+        self.set_killer(kill_send.clone());
 
         let stdout_stream = into_stream(stdout, true);
         let stderr_stream = into_stream(stderr, false);
-        let mut out = tokio_stream::StreamExt::merge(stdout_stream, stderr_stream);
+        let mut std_stream = tokio_stream::StreamExt::merge(stdout_stream, stderr_stream);
 
         let stream = stream! {
             loop {
                 use ProcessItem::*;
                 tokio::select! {
-                    Some(out) = out.next() => yield out,
+                    Some(std_stream) = std_stream.next() => yield std_stream,
                     status = child.wait() => match status {
                         Err(err) => yield Error(err.to_string()),
                         Ok(status) => {
@@ -106,29 +97,98 @@ impl Process {
 
         Ok(stream.boxed())
     }
-
-    /// Set the process's stdin.
-    pub fn stdin(&mut self, stdin: Stdio) {
-        self.set_stdin = stdin.into();
+    /// Get a sender that can be used to send kill a the process
+    fn killer(&self) -> Option<Sender<()>>;
+    /// Set a sender that can be used to send kill a the process
+    fn set_killer(&mut self, killer: Sender<()>);
+    /// Get process stdin
+    fn take_stdin(&mut self) -> Option<ChildStdin> {
+        None
     }
-
-    /// Kill Running process.
-    /// returns false if the call is already made.
-    pub async fn kill(&self) -> bool {
-        if let Some(tx) = &self.kill_send {
+    /// Set process stdin
+    fn set_child_stdin(&mut self, _child_stdin: Option<ChildStdin>) {}
+    /// Get process stdin pipe
+    fn get_stdin(&mut self) -> Option<Stdio> {
+        Some(Stdio::null())
+    }
+    /// get process stdout pipe
+    fn get_stdout(&mut self) -> Option<Stdio> {
+        Some(Stdio::piped())
+    }
+    /// get process stderr pipe
+    fn get_stderr(&mut self) -> Option<Stdio> {
+        Some(Stdio::piped())
+    }
+    /// Kill the process
+    async fn kill(&self) -> bool {
+        if let Some(tx) = self.killer() {
             tx.send(()).await.is_ok()
         } else {
             false
         }
     }
+}
 
-    /// Get an owned instance of kill single sender.
-    ///
-    /// This Convinent to be able to kill process from different threads.
-    ///
-    /// Returns None if process is already killed
-    pub fn clone_kill_sender(&self) -> Option<Sender<()>> {
+/// Thin Wrapper around [`Command`] to make it streamable
+pub struct Process {
+    inner: Command,
+    stdin: Option<ChildStdin>,
+    set_stdin: Option<Stdio>,
+    set_stdout: Option<Stdio>,
+    set_stderr: Option<Stdio>,
+    kill_send: Option<Sender<()>>,
+}
+
+impl ProcessExt for Process {
+    fn get_command(&mut self) -> &mut Command {
+        &mut self.inner
+    }
+
+    fn killer(&self) -> Option<Sender<()>> {
         self.kill_send.clone()
+    }
+
+    fn set_killer(&mut self, killer: Sender<()>) {
+        self.kill_send = Some(killer)
+    }
+
+    fn take_stdin(&mut self) -> Option<ChildStdin> {
+        self.stdin.take()
+    }
+
+    fn set_child_stdin(&mut self, child_stdin: Option<ChildStdin>) {
+        self.stdin = child_stdin;
+    }
+
+    fn get_stdin(&mut self) -> Option<Stdio> {
+        self.set_stdin.take()
+    }
+
+    fn get_stdout(&mut self) -> Option<Stdio> {
+        self.set_stdout.take()
+    }
+
+    fn get_stderr(&mut self) -> Option<Stdio> {
+        self.set_stderr.take()
+    }
+}
+
+impl Process {
+    /// Create new process with a program
+    pub fn new<S: AsRef<OsStr>>(program: S) -> Self {
+        Self {
+            inner: Command::new(program),
+            set_stdin: Some(Stdio::null()),
+            set_stdout: Some(Stdio::piped()),
+            set_stderr: Some(Stdio::piped()),
+            stdin: None,
+            kill_send: None,
+        }
+    }
+
+    /// Set the process's stdin.
+    pub fn stdin(&mut self, stdin: Stdio) {
+        self.set_stdin = stdin.into();
     }
 
     /// Set the process's stdout.
@@ -139,12 +199,6 @@ impl Process {
     /// Set the process's stderr.
     pub fn stderr(&mut self, stderr: Stdio) {
         self.set_stderr = stderr.into();
-    }
-
-    /// Get a reference to the process's stdin.
-    #[must_use]
-    pub fn take_stdin(&mut self) -> Option<ChildStdin> {
-        self.stdin.take()
     }
 }
 
@@ -163,16 +217,13 @@ impl DerefMut for Process {
 }
 
 impl From<Command> for Process {
-    fn from(mut command: Command) -> Self {
-        command.stdout(Stdio::piped());
-        command.stderr(Stdio::piped());
-        command.stdin(Stdio::null());
+    fn from(command: Command) -> Self {
         Self {
             inner: command,
             stdin: None,
-            set_stdin: None,
-            set_stdout: None,
-            set_stderr: None,
+            set_stdin: Some(Stdio::null()),
+            set_stdout: Some(Stdio::piped()),
+            set_stderr: Some(Stdio::piped()),
             kill_send: None,
         }
     }
@@ -209,11 +260,16 @@ impl From<&PathBuf> for Process {
     }
 }
 
-fn into_stream<R: AsyncRead>(out: R, is_stdout: bool) -> impl Stream<Item = ProcessItem> {
-    out.pipe(BufReader::new)
+/// Convert std_stream to a stream of T
+pub fn into_stream<T, R>(std: R, is_stdout: bool) -> impl Stream<Item = T>
+where
+    T: From<(bool, Result<String>)>,
+    R: AsyncRead,
+{
+    std.pipe(BufReader::new)
         .lines()
         .pipe(LinesStream::new)
-        .map(move |v| ProcessItem::from((is_stdout, v)))
+        .map(move |v| T::from((is_stdout, v)))
 }
 
 #[cfg(test)]
@@ -278,7 +334,7 @@ mod tests {
         let mut process = Process::new("xcrun");
 
         process.args(&[
-            "/Users/tami5/Library/Caches/Xbase/swift/Control/Control.app/Contents/MacOS/Control",
+            "/Users/tami5/Library/Caches/Xbase/swift_Control/Debug/Control.app/Contents/MacOS/Control",
         ]);
 
         let mut stream = process.spawn_and_stream()?;

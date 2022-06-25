@@ -2,10 +2,12 @@
 
 Wraps `tokio::process::Command` to `future::stream`.
 
+This library provide ProcessExt to create your own custom process
+
 ## Install
 
 ```toml
-process-stream = "0.2.2"
+process-stream = "0.3.0"
 ```
 
 ## Example usage:
@@ -13,8 +15,7 @@ process-stream = "0.2.2"
 ### From `Vec<String>` or `Vec<&str>`
 
 ```rust
-use process_stream::Process;
-use process_stream::StreamExt;
+use process_stream::{Process, ProcessExt, StreamExt};
 use std::io;
 
 #[tokio::main]
@@ -34,8 +35,7 @@ async fn main() -> io::Result<()> {
 ### From `Path/PathBuf/str`
 
 ```rust
-use process_stream::Process;
-use process_stream::StreamExt;
+use process_stream::{Process, ProcessExt, StreamExt};
 use std::io;
 
 #[tokio::main]
@@ -54,8 +54,7 @@ async fn main() -> io::Result<()> {
 ### New
 
 ```rust
-use process_stream::Process;
-use process_stream::StreamExt;
+use process_stream::{Process, ProcessExt, StreamExt};
 use std::io;
 
 #[tokio::main]
@@ -76,8 +75,7 @@ async fn main() -> io::Result<()> {
 ### Kill
 
 ```rust
-use process_stream::Process;
-use process_stream::StreamExt;
+use process_stream::{Process, ProcessExt, StreamExt};
 use std::io;
 
 #[tokio::main]
@@ -104,6 +102,7 @@ async fn main() -> io::Result<()> {
 
 ### Communicate with running process
 ```rust
+use process_stream::{Process, ProcessExt, StreamExt};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
