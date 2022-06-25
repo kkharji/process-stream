@@ -7,7 +7,7 @@ This library provide ProcessExt to create your own custom process
 ## Install
 
 ```toml
-process-stream = "0.3.0"
+process-stream = "0.3.1"
 ```
 
 ## Example usage:

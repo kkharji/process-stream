@@ -54,6 +54,11 @@ pub trait ProcessExt {
 
     /// Spawn and stream process
     fn spawn_and_stream(&mut self) -> Result<Pin<Box<dyn Stream<Item = ProcessItem> + Send>>> {
+        self._spawn_and_stream()
+    }
+
+    /// Spawn and stream process (avoid custom implementation, use spawn_and_stream instead)
+    fn _spawn_and_stream(&mut self) -> Result<Pin<Box<dyn Stream<Item = ProcessItem> + Send>>> {
         let (kill_send, mut kill_recv) = channel::<()>(1);
 
         let mut child = self.command().spawn()?;
