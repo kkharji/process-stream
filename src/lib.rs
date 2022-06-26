@@ -17,13 +17,14 @@ use std::{
     path::{Path, PathBuf},
     pin::Pin,
     process::Stdio,
+    sync::Arc,
 };
 use tap::Pipe;
 use {
     tokio::{
         io::{AsyncBufReadExt, AsyncRead, BufReader},
         process::{ChildStdin, Command},
-        sync::mpsc::{channel, Sender},
+        sync::Notify,
     },
     tokio_stream::wrappers::LinesStream,
 };
@@ -62,7 +63,7 @@ pub trait ProcessExt {
 
     /// Spawn and stream process (avoid custom implementation, use spawn_and_stream instead)
     fn _spawn_and_stream(&mut self) -> Result<ProcessStream> {
-        let (kill_send, mut kill_recv) = channel::<()>(1);
+        let kill = Arc::new(Notify::new());
 
         let mut child = self.command().spawn()?;
 
@@ -70,7 +71,7 @@ pub trait ProcessExt {
         let stderr = child.stderr.take().unwrap();
 
         self.set_child_stdin(child.stdin.take());
-        self.set_killer(kill_send.clone());
+        self.set_killer(Some(kill.clone()));
 
         let stdout_stream = into_stream(stdout, true);
         let stderr_stream = into_stream(stderr, false);
@@ -80,7 +81,7 @@ pub trait ProcessExt {
             loop {
                 use ProcessItem::*;
                 tokio::select! {
-                    Some(std_stream) = std_stream.next() => yield std_stream,
+                    Some(output) = std_stream.next() => yield output,
                     status = child.wait() => match status {
                         Err(err) => yield Error(err.to_string()),
                         Ok(status) => {
@@ -92,7 +93,7 @@ pub trait ProcessExt {
 
                         }
                     },
-                    Some(_) = kill_recv.recv() => {
+                    _ = kill.notified() => {
                         match child.start_kill() {
                             Ok(()) => yield Exit("0".into()),
                             Err(err) => yield Error(format!("Kill Process Error: {err}")),
@@ -106,9 +107,9 @@ pub trait ProcessExt {
         Ok(stream.boxed())
     }
     /// Get a sender that can be used to send kill a the process
-    fn killer(&self) -> Option<Sender<()>>;
+    fn killer(&self) -> Option<Arc<Notify>>;
     /// Set a sender that can be used to send kill a the process
-    fn set_killer(&mut self, killer: Sender<()>);
+    fn set_killer(&mut self, killer: Option<Arc<Notify>>);
     /// Get process stdin
     fn take_stdin(&mut self) -> Option<ChildStdin> {
         None
@@ -127,17 +128,6 @@ pub trait ProcessExt {
     fn get_stderr(&mut self) -> Option<Stdio> {
         Some(Stdio::piped())
     }
-    /// Kill the process
-    async fn kill(&self) -> bool
-    where
-        Self: Sized,
-    {
-        if let Some(tx) = self.killer() {
-            tx.send(()).await.is_ok()
-        } else {
-            false
-        }
-    }
 }
 
 /// Thin Wrapper around [`Command`] to make it streamable
@@ -147,7 +137,7 @@ pub struct Process {
     set_stdin: Option<Stdio>,
     set_stdout: Option<Stdio>,
     set_stderr: Option<Stdio>,
-    kill_send: Option<Sender<()>>,
+    kill: Option<Arc<Notify>>,
 }
 
 impl ProcessExt for Process {
@@ -155,12 +145,12 @@ impl ProcessExt for Process {
         &mut self.inner
     }
 
-    fn killer(&self) -> Option<Sender<()>> {
-        self.kill_send.clone()
+    fn killer(&self) -> Option<Arc<Notify>> {
+        self.kill.clone()
     }
 
-    fn set_killer(&mut self, killer: Sender<()>) {
-        self.kill_send = Some(killer)
+    fn set_killer(&mut self, killer: Option<Arc<Notify>>) {
+        self.kill = killer
     }
 
     fn take_stdin(&mut self) -> Option<ChildStdin> {
@@ -193,7 +183,7 @@ impl Process {
             set_stdout: Some(Stdio::piped()),
             set_stderr: Some(Stdio::piped()),
             stdin: None,
-            kill_send: None,
+            kill: None,
         }
     }
 
@@ -210,6 +200,11 @@ impl Process {
     /// Set the process's stderr.
     pub fn stderr(&mut self, stderr: Stdio) {
         self.set_stderr = stderr.into();
+    }
+
+    /// Kill the process
+    pub fn kill(&self) {
+        self.killer().map(|k| k.notify_waiters());
     }
 }
 
@@ -235,7 +230,7 @@ impl From<Command> for Process {
             set_stdin: Some(Stdio::null()),
             set_stdout: Some(Stdio::piped()),
             set_stderr: Some(Stdio::piped()),
-            kill_send: None,
+            kill: None,
         }
     }
 }
@@ -357,7 +352,7 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::new(5, 0)).await;
 
-        process.kill().await;
+        process.kill();
 
         tokio::time::sleep(std::time::Duration::new(5, 0)).await;
 
