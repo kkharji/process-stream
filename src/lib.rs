@@ -5,6 +5,9 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![doc = include_str!("../README.md")]
 
+/// Alias for a stream of process items
+pub type ProcessStream = Pin<Box<dyn Stream<Item = ProcessItem> + Send>>;
+
 pub use async_stream::stream;
 use io::Result;
 use std::{
@@ -53,12 +56,12 @@ pub trait ProcessExt {
     }
 
     /// Spawn and stream process
-    fn spawn_and_stream(&mut self) -> Result<Pin<Box<dyn Stream<Item = ProcessItem> + Send>>> {
+    fn spawn_and_stream(&mut self) -> Result<ProcessStream> {
         self._spawn_and_stream()
     }
 
     /// Spawn and stream process (avoid custom implementation, use spawn_and_stream instead)
-    fn _spawn_and_stream(&mut self) -> Result<Pin<Box<dyn Stream<Item = ProcessItem> + Send>>> {
+    fn _spawn_and_stream(&mut self) -> Result<ProcessStream> {
         let (kill_send, mut kill_recv) = channel::<()>(1);
 
         let mut child = self.command().spawn()?;
@@ -125,7 +128,10 @@ pub trait ProcessExt {
         Some(Stdio::piped())
     }
     /// Kill the process
-    async fn kill(&self) -> bool {
+    async fn kill(&self) -> bool
+    where
+        Self: Sized,
+    {
         if let Some(tx) = self.killer() {
             tx.send(()).await.is_ok()
         } else {
