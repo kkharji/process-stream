@@ -63,7 +63,7 @@ pub trait ProcessExt {
 
     /// Spawn and stream process (avoid custom implementation, use spawn_and_stream instead)
     fn _spawn_and_stream(&mut self) -> Result<ProcessStream> {
-        let kill = Arc::new(Notify::new());
+        let abort = Arc::new(Notify::new());
 
         let mut child = self.command().spawn()?;
 
@@ -71,7 +71,7 @@ pub trait ProcessExt {
         let stderr = child.stderr.take().unwrap();
 
         self.set_child_stdin(child.stdin.take());
-        self.set_killer(Some(kill.clone()));
+        self.set_aborter(Some(abort.clone()));
 
         let stdout_stream = into_stream(stdout, true);
         let stderr_stream = into_stream(stderr, false);
@@ -93,10 +93,10 @@ pub trait ProcessExt {
 
                         }
                     },
-                    _ = kill.notified() => {
+                    _ = abort.notified() => {
                         match child.start_kill() {
                             Ok(()) => yield Exit("0".into()),
-                            Err(err) => yield Error(format!("Kill Process Error: {err}")),
+                            Err(err) => yield Error(format!("abort Process Error: {err}")),
                         };
                         break;
                     }
@@ -106,10 +106,10 @@ pub trait ProcessExt {
 
         Ok(stream.boxed())
     }
-    /// Get a sender that can be used to send kill a the process
-    fn killer(&self) -> Option<Arc<Notify>>;
-    /// Set a sender that can be used to send kill a the process
-    fn set_killer(&mut self, killer: Option<Arc<Notify>>);
+    /// Get a notifier that can be used to abort the process
+    fn aborter(&self) -> Option<Arc<Notify>>;
+    /// Set the notifier that should be used to abort the process
+    fn set_aborter(&mut self, aborter: Option<Arc<Notify>>);
     /// Get process stdin
     fn take_stdin(&mut self) -> Option<ChildStdin> {
         None
@@ -137,7 +137,7 @@ pub struct Process {
     set_stdin: Option<Stdio>,
     set_stdout: Option<Stdio>,
     set_stderr: Option<Stdio>,
-    kill: Option<Arc<Notify>>,
+    abort: Option<Arc<Notify>>,
 }
 
 impl ProcessExt for Process {
@@ -145,12 +145,12 @@ impl ProcessExt for Process {
         &mut self.inner
     }
 
-    fn killer(&self) -> Option<Arc<Notify>> {
-        self.kill.clone()
+    fn aborter(&self) -> Option<Arc<Notify>> {
+        self.abort.clone()
     }
 
-    fn set_killer(&mut self, killer: Option<Arc<Notify>>) {
-        self.kill = killer
+    fn set_aborter(&mut self, aborter: Option<Arc<Notify>>) {
+        self.abort = aborter
     }
 
     fn take_stdin(&mut self) -> Option<ChildStdin> {
@@ -183,7 +183,7 @@ impl Process {
             set_stdout: Some(Stdio::piped()),
             set_stderr: Some(Stdio::piped()),
             stdin: None,
-            kill: None,
+            abort: None,
         }
     }
 
@@ -202,9 +202,9 @@ impl Process {
         self.set_stderr = stderr.into();
     }
 
-    /// Kill the process
-    pub fn kill(&self) {
-        self.killer().map(|k| k.notify_waiters());
+    /// Abort the process
+    pub fn abort(&self) {
+        self.aborter().map(|k| k.notify_waiters());
     }
 }
 
@@ -230,7 +230,7 @@ impl From<Command> for Process {
             set_stdin: Some(Stdio::null()),
             set_stdout: Some(Stdio::piped()),
             set_stderr: Some(Stdio::piped()),
-            kill: None,
+            abort: None,
         }
     }
 }
@@ -336,7 +336,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_kill() -> Result<()> {
+    async fn test_abort() -> Result<()> {
         let mut process = Process::new("xcrun");
 
         process.args(&[
@@ -352,7 +352,7 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::new(5, 0)).await;
 
-        process.kill();
+        process.abort();
 
         tokio::time::sleep(std::time::Duration::new(5, 0)).await;
 
