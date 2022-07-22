@@ -50,6 +50,9 @@ pub trait ProcessExt {
         let stderr = self.get_stderr().take().unwrap();
         let command = self.get_command();
 
+        #[cfg(widnows)]
+        command.creation_flags(0x08000000);
+
         command.stdin(stdin);
         command.stderr(stdout);
         command.stdout(stderr);
