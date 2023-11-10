@@ -96,10 +96,9 @@ pub trait ProcessExt {
                                     Some(code) => yield Exit(format!("{code}")),
                                     None => yield Error("Unable to get exit code".into()),
                                 }
-                                break;
-
                             }
                         }
+                        break;
                     },
                     _ = abort.notified() => {
                         match child.start_kill() {
