@@ -79,22 +79,26 @@ pub trait ProcessExt {
         let stdout_stream = into_stream(stdout, true);
         let stderr_stream = into_stream(stderr, false);
         let mut std_stream = tokio_stream::StreamExt::merge(stdout_stream, stderr_stream);
-
         let stream = stream! {
             loop {
                 use ProcessItem::*;
                 tokio::select! {
                     Some(output) = std_stream.next() => yield output,
-                    status = child.wait() => match status {
-                        Err(err) => yield Error(err.to_string()),
-                        Ok(status) => {
-                            match status.code() {
-                                Some(code) => yield Exit(format!("{code}")),
-                                None => yield Error("Unable to get exit code".into()),
-                            }
-                            break;
-
+                    status = child.wait() => {
+                        // Drain the stream before exiting
+                        while let Some(output) = std_stream.next().await {
+                            yield output
                         }
+                        match status {
+                            Err(err) => yield Error(err.to_string()),
+                            Ok(status) => {
+                                match status.code() {
+                                    Some(code) => yield Exit(format!("{code}")),
+                                    None => yield Error("Unable to get exit code".into()),
+                                }
+                            }
+                        }
+                        break;
                     },
                     _ = abort.notified() => {
                         match child.start_kill() {

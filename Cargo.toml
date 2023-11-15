@@ -13,12 +13,12 @@ keywords = ["tokio", "stream", "async-stream", "process"]
 
 [dependencies]
 tap          = "1.0.1"
-futures      = "0.3.21"
-tokio        = { version = "1.18.0", features = [ "rt-multi-thread", "macros", "process"] }
-tokio-stream = { version = "0.1.8", features = ["io-util"] }
-async-stream = "0.3.3"
-serde = { version = "1.0.137", features = ["derive"], optional = true }
-async-trait = "0.1.56"
+futures      = "0.3"
+tokio        = { version = "1", features = [ "rt-multi-thread", "macros", "process"] }
+tokio-stream = { version = "0.1", features = ["io-util"] }
+async-stream = "0.3"
+serde = { version = "1.0", features = ["derive"], optional = true }
+async-trait = "0.1"
 
 [features]
 default = []
