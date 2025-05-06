@@ -20,7 +20,7 @@ use std::io;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let ls_home: Process = vec!["/bin/ls", "."].into();
+    let mut ls_home: Process = vec!["/bin/ls", "."].into();
 
     let mut stream = ls_home.spawn_and_stream()?;
 
@@ -88,13 +88,13 @@ async fn main() -> io::Result<()> {
       while let Some(output) = stream.next().await {
         println!("{output}")
       }
-    })
+    });
 
     // process some outputs
     tokio::time::sleep(std::time::Duration::new(10, 0)).await;
 
     // close the process
-    long_process.kill().await;
+    long_process.abort();
 
     Ok(())
 }
@@ -103,9 +103,11 @@ async fn main() -> io::Result<()> {
 ### Communicate with running process
 ```rust
 use process_stream::{Process, ProcessExt, StreamExt};
+use tokio::io::AsyncWriteExt;
+use std::process::Stdio;
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> std::io::Result<()> {
     let mut process: Process = Process::new("sort");
 
     // Set stdin (by default is set to null)
