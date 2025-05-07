@@ -80,7 +80,7 @@ use std::io;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let mut long_process = Process::new("/bin/app");
+    let mut long_process = Process::new("cat");
 
     let mut stream = long_process.spawn_and_stream()?;
 
@@ -91,7 +91,7 @@ async fn main() -> io::Result<()> {
     });
 
     // process some outputs
-    tokio::time::sleep(std::time::Duration::new(10, 0)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // close the process
     long_process.abort();
