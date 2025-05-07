@@ -3,11 +3,11 @@ name = "process-stream"
 version = "0.4.3"
 edition = "2021"
 description = "Thin wrapper around [`tokio::process`] to make it streamable"
-authors = ["tami5 "]
+authors = ["kkharji"]
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/tami5/process-stream"
-repository = "https://github.com/tami5/process-stream"
+homepage = "https://github.com/kkharji/process-stream"
+repository = "https://github.com/kkharji/process-stream"
 categories = ["asynchronous"]
 keywords = ["tokio", "stream", "async-stream", "process"]
 
