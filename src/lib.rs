@@ -293,76 +293,11 @@ mod tests {
     use std::io::Result;
 
     #[tokio::test]
-    async fn test_from_vector() -> Result<()> {
-        let mut stream = Process::from(vec![
-            "xcrun",
-            "simctl",
-            "launch",
-            "--terminate-running-process",
-            "--console",
-            "booted",
-            "tami5.Wordle",
-        ])
-        .spawn_and_stream()
-        .unwrap();
-
-        while let Some(output) = stream.next().await {
-            println!("{output}")
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_from_path() -> Result<()> {
         let mut process: Process = "/bin/ls".into();
 
         let outputs = process.spawn_and_stream()?.collect::<Vec<_>>().await;
         println!("{outputs:#?}");
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_new() -> Result<()> {
-        let mut process = Process::new("xcrun");
-
-        process.args(&[
-            "simctl",
-            "launch",
-            "--terminate-running-process",
-            "--console",
-            "booted",
-            "tami5.Wordle",
-        ]);
-
-        let mut stream = process.spawn_and_stream()?;
-
-        while let Some(output) = stream.next().await {
-            println!("{output:#?}")
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_abort() -> Result<()> {
-        let mut process = Process::new("xcrun");
-
-        process.args(&[
-            "/Users/tami5/Library/Caches/Xbase/swift_Control/Debug/Control.app/Contents/MacOS/Control",
-        ]);
-
-        let mut stream = process.spawn_and_stream()?;
-        tokio::spawn(async move {
-            while let Some(output) = stream.next().await {
-                println!("{output}")
-            }
-        });
-
-        tokio::time::sleep(std::time::Duration::new(5, 0)).await;
-
-        process.abort();
-
-        tokio::time::sleep(std::time::Duration::new(5, 0)).await;
-
         Ok(())
     }
 
