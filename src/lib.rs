@@ -43,9 +43,9 @@ pub trait ProcessExt {
 
     /// Get command after settings the required pipes;
     fn command(&mut self) -> &mut Command {
-        let stdin = self.get_stdin().take().unwrap();
-        let stdout = self.get_stdout().take().unwrap();
-        let stderr = self.get_stderr().take().unwrap();
+        let stdin = self.get_stdin().unwrap();
+        let stdout = self.get_stdout().unwrap();
+        let stderr = self.get_stderr().unwrap();
         let command = self.get_command();
 
         #[cfg(windows)]
@@ -209,7 +209,9 @@ impl Process {
 
     /// Abort the process
     pub fn abort(&self) {
-        self.aborter().map(|k| k.notify_waiters());
+        if let Some(aborter) = self.aborter() {
+            aborter.notify_waiters();
+        }
     }
 }
 

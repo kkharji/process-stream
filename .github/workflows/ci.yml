@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    tags:
+      - "*.*.*"
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      - name: Run cargo fmt (check if all code is rustfmt-ed)
+        run: cargo fmt --all -- --check
+      - name: Run cargo clippy (deny warnings)
+        run: cargo clippy -- -D warnings
+
+  publish-check:
+    name: Publish Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fetch
+      - run: cargo publish --dry-run
