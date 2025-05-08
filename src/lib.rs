@@ -30,14 +30,12 @@ use {
 };
 
 mod item;
-pub use async_trait::async_trait;
 pub use futures::Stream;
 pub use futures::StreamExt;
 pub use futures::TryStreamExt;
 pub use item::ProcessItem;
 pub use tokio_stream;
 
-#[async_trait]
 /// ProcessExt trait that needs to be implemented to make something streamable
 pub trait ProcessExt {
     /// Get command that will be used to create a child process from
