@@ -36,7 +36,7 @@ pub use futures::TryStreamExt;
 pub use item::ProcessItem;
 pub use tokio_stream;
 
-/// ProcessExt trait that needs to be implemented to make something streamable
+/// `ProcessExt` trait that needs to be implemented to make something streamable
 pub trait ProcessExt {
     /// Get command that will be used to create a child process from
     fn get_command(&mut self) -> &mut Command;
@@ -58,12 +58,25 @@ pub trait ProcessExt {
     }
 
     /// Spawn and stream process
+    ///
+    /// # Errors
+    ///
+    /// Will return an error if the process fails to spawn
     fn spawn_and_stream(&mut self) -> Result<ProcessStream> {
-        self._spawn_and_stream()
+        self.spawn_and_stream_inner()
     }
 
-    /// Spawn and stream process (avoid custom implementation, use spawn_and_stream instead)
-    fn _spawn_and_stream(&mut self) -> Result<ProcessStream> {
+    /// # Errors
+    ///
+    /// Will return an error if the process fails to spawn.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - `stdout` or `stderr` is not available in the spawned child process (should not happen if
+    ///   proper pipes are set up with `get_stdout()` and `get_stderr()`)
+    #[allow(tail_expr_drop_order)]
+    fn spawn_and_stream_inner(&mut self) -> Result<ProcessStream> {
         let abort = Arc::new(Notify::new());
 
         let mut child = self.command().spawn()?;
@@ -79,7 +92,7 @@ pub trait ProcessExt {
         let mut std_stream = tokio_stream::StreamExt::merge(stdout_stream, stderr_stream);
         let stream = stream! {
             loop {
-                use ProcessItem::*;
+                use ProcessItem::{Error, Exit};
                 tokio::select! {
                     Some(output) = std_stream.next() => yield output,
                     status = child.wait() => {
@@ -98,11 +111,11 @@ pub trait ProcessExt {
                         }
                         break;
                     },
-                    _ = abort.notified() => {
+                    () = abort.notified() => {
                         match child.start_kill() {
                             Ok(()) => yield Exit("0".into()),
                             Err(err) => yield Error(format!("abort Process Error: {err}")),
-                        };
+                        }
                         break;
                     }
                 }
@@ -136,6 +149,7 @@ pub trait ProcessExt {
 }
 
 /// Thin Wrapper around [`Command`] to make it streamable
+#[derive(Debug)]
 pub struct Process {
     inner: Command,
     stdin: Option<ChildStdin>,
@@ -155,7 +169,7 @@ impl ProcessExt for Process {
     }
 
     fn set_aborter(&mut self, aborter: Option<Arc<Notify>>) {
-        self.abort = aborter
+        self.abort = aborter;
     }
 
     fn take_stdin(&mut self) -> Option<ChildStdin> {
@@ -273,7 +287,7 @@ impl From<&PathBuf> for Process {
     }
 }
 
-/// Convert std_stream to a stream of T
+/// Convert `std_stream` to a stream of T
 pub fn into_stream<T, R>(std: R, is_stdout: bool) -> impl Stream<Item = T>
 where
     T: From<(bool, Result<String>)>,

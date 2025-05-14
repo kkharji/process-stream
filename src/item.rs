@@ -17,9 +17,9 @@ impl Deref for ProcessItem {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            ProcessItem::Output(s) => s,
-            ProcessItem::Error(s) => s,
-            ProcessItem::Exit(s) => s,
+            Self::Output(s) => s,
+            Self::Error(s) => s,
+            Self::Exit(s) => s,
         }
     }
 }
@@ -54,7 +54,7 @@ impl ProcessItem {
     ///
     /// [`Output`]: ProcessItem::Output
     #[must_use]
-    pub fn is_output(&self) -> bool {
+    pub const fn is_output(&self) -> bool {
         matches!(self, Self::Output(..))
     }
 
@@ -62,7 +62,7 @@ impl ProcessItem {
     ///
     /// [`Error`]: ProcessItem::Error
     #[must_use]
-    pub fn is_error(&self) -> bool {
+    pub const fn is_error(&self) -> bool {
         matches!(self, Self::Error(..))
     }
 
@@ -70,7 +70,7 @@ impl ProcessItem {
     ///
     /// [`Exit`]: ProcessItem::Exit
     #[must_use]
-    pub fn is_exit(&self) -> bool {
+    pub const fn is_exit(&self) -> bool {
         matches!(self, Self::Exit(..))
     }
 
@@ -83,7 +83,8 @@ impl ProcessItem {
     }
 
     /// Return exit code if [`ProcessItem`] is [`ProcessItem::Exit`]
-    pub fn as_exit(&self) -> Option<&String> {
+    #[must_use]
+    pub const fn as_exit(&self) -> Option<&String> {
         if let Self::Exit(v) = self {
             Some(v)
         } else {
@@ -92,7 +93,8 @@ impl ProcessItem {
     }
 
     /// Return inner reference [`String`] value if [`ProcessItem`] is [`ProcessItem::Error`]
-    pub fn as_error(&self) -> Option<&String> {
+    #[must_use]
+    pub const fn as_error(&self) -> Option<&String> {
         if let Self::Error(v) = self {
             Some(v)
         } else {
@@ -101,7 +103,8 @@ impl ProcessItem {
     }
 
     /// Return inner reference [`String`] value if [`ProcessItem`] is [`ProcessItem::Output`]
-    pub fn as_output(&self) -> Option<&String> {
+    #[must_use]
+    pub const fn as_output(&self) -> Option<&String> {
         if let Self::Output(v) = self {
             Some(v)
         } else {
