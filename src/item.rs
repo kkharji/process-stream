@@ -40,9 +40,9 @@ impl fmt::Debug for ProcessItem {
     }
 }
 impl From<(bool, io::Result<String>)> for ProcessItem {
-    fn from(v: (bool, io::Result<String>)) -> Self {
-        match v.1 {
-            Ok(line) if v.0 => Self::Output(line),
+    fn from((is_stdout, line): (bool, io::Result<String>)) -> Self {
+        match line {
+            Ok(line) if is_stdout => Self::Output(line),
             Ok(line) => Self::Error(line),
             Err(e) => Self::Error(e.to_string()),
         }

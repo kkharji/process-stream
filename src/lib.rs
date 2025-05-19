@@ -280,7 +280,7 @@ where
     std.pipe(BufReader::new)
         .lines()
         .pipe(LinesStream::new)
-        .map(move |v| T::from((is_stdout, v)))
+        .map(move |line| T::from((is_stdout, line)))
 }
 
 #[cfg(test)]
